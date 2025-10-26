@@ -24,10 +24,21 @@ h5py>=3.6.0
 netcdf4>=1.5.8
 xarray>=0.20.0
 
-# Web Framework
-fastapi>=0.70.0
-uvicorn>=0.15.0
-pydantic>=1.8.0
+# Web framework
+fastapi>=0.104.1
+uvicorn>=0.24.0
+pydantic>=2.5.0
+streamlit>=1.28.0
+
+# Visualization libraries
+plotly>=5.17.0
+mayavi>=4.8.1
+pyvista>=0.42.0
+vtk>=9.3.0
+
+# Additional utilities
+python-dotenv>=1.0.0
+python-multipart>=0.0.6
 
 # Configuration and Logging
 pyyaml>=6.0
