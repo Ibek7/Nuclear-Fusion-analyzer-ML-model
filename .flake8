@@ -1,0 +1,33 @@
+# Lint configuration for flake8
+[flake8]
+max-line-length = 120
+ignore = 
+    E203,  # whitespace before ':'
+    W503,  # line break before binary operator
+    E501,  # line too long (handled by black)
+    W601,  # .has_key() is deprecated
+exclude = 
+    .git,
+    __pycache__,
+    .venv,
+    .env,
+    dist,
+    build,
+    *.egg-info,
+    .mypy_cache,
+    .pytest_cache,
+    migrations
+
+# Per-file ignores
+per-file-ignores =
+    __init__.py:F401
+    tests/*:S101,S106
+    config/*:E501
+
+# Complexity settings
+max-complexity = 10
+max-cognitive-complexity = 15
+
+# Import settings
+import-order-style = pycharm
+application-import-names = src

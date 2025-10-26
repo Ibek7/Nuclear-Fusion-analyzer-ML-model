@@ -1,0 +1,258 @@
+name: Model Training Pipeline
+
+on:
+  schedule:
+    # Run model training weekly on Sunday at 3 AM UTC
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      model_type:
+        description: 'Type of model to train'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - random_forest
+        - gradient_boosting
+        - neural_network
+        - lstm
+      data_size:
+        description: 'Size of training dataset'
+        required: false
+        default: '10000'
+        type: string
+
+env:
+  PYTHON_VERSION: '3.9'
+  AWS_REGION: 'us-west-2'
+
+jobs:
+  data-preparation:
+    name: Data Preparation
+    runs-on: ubuntu-latest
+    outputs:
+      dataset-id: ${{ steps.prepare.outputs.dataset-id }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Prepare training data
+      id: prepare
+      run: |
+        DATA_SIZE=${{ github.event.inputs.data_size || '10000' }}
+        DATASET_ID=$(date +%Y%m%d-%H%M%S)
+        
+        poetry run python scripts/prepare_training_data.py \
+          --size $DATA_SIZE \
+          --output-path s3://fusion-analyzer-ml/datasets/$DATASET_ID/ \
+          --validation-split 0.2 \
+          --test-split 0.1
+        
+        echo "dataset-id=$DATASET_ID" >> $GITHUB_OUTPUT
+
+    - name: Validate data quality
+      run: |
+        poetry run python scripts/validate_data_quality.py \
+          --dataset-path s3://fusion-analyzer-ml/datasets/${{ steps.prepare.outputs.dataset-id }}/
+
+  model-training:
+    name: Train Models
+    runs-on: ubuntu-latest
+    needs: data-preparation
+    strategy:
+      matrix:
+        model_type: [random_forest, gradient_boosting, neural_network, lstm]
+        exclude:
+          - model_type: ${{ github.event.inputs.model_type != 'all' && github.event.inputs.model_type || 'none' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Train model
+      run: |
+        poetry run python scripts/train_model.py \
+          --model-type ${{ matrix.model_type }} \
+          --dataset-path s3://fusion-analyzer-ml/datasets/${{ needs.data-preparation.outputs.dataset-id }}/ \
+          --output-path s3://fusion-analyzer-ml/models/${{ needs.data-preparation.outputs.dataset-id }}/ \
+          --config config/training/${{ matrix.model_type }}.yaml \
+          --experiment-name "ci-cd-${{ github.run_number }}"
+
+    - name: Evaluate model
+      run: |
+        poetry run python scripts/evaluate_model.py \
+          --model-path s3://fusion-analyzer-ml/models/${{ needs.data-preparation.outputs.dataset-id }}/${{ matrix.model_type }}/ \
+          --test-data-path s3://fusion-analyzer-ml/datasets/${{ needs.data-preparation.outputs.dataset-id }}/test/ \
+          --output-path s3://fusion-analyzer-ml/evaluations/${{ needs.data-preparation.outputs.dataset-id }}/${{ matrix.model_type }}/
+
+    - name: Generate model report
+      run: |
+        poetry run python scripts/generate_model_report.py \
+          --model-path s3://fusion-analyzer-ml/models/${{ needs.data-preparation.outputs.dataset-id }}/${{ matrix.model_type }}/ \
+          --evaluation-path s3://fusion-analyzer-ml/evaluations/${{ needs.data-preparation.outputs.dataset-id }}/${{ matrix.model_type }}/ \
+          --output-path reports/model_${{ matrix.model_type }}_${{ needs.data-preparation.outputs.dataset-id }}.html
+
+    - name: Upload model report
+      uses: actions/upload-artifact@v3
+      with:
+        name: model-reports
+        path: reports/
+
+  model-comparison:
+    name: Compare Models
+    runs-on: ubuntu-latest
+    needs: [data-preparation, model-training]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Compare models
+      run: |
+        poetry run python scripts/compare_models.py \
+          --evaluation-base-path s3://fusion-analyzer-ml/evaluations/${{ needs.data-preparation.outputs.dataset-id }}/ \
+          --output-path reports/model_comparison_${{ needs.data-preparation.outputs.dataset-id }}.html
+
+    - name: Select best model
+      id: select
+      run: |
+        BEST_MODEL=$(poetry run python scripts/select_best_model.py \
+          --evaluation-base-path s3://fusion-analyzer-ml/evaluations/${{ needs.data-preparation.outputs.dataset-id }}/ \
+          --metric mse)
+        
+        echo "best-model=$BEST_MODEL" >> $GITHUB_OUTPUT
+
+    - name: Upload comparison report
+      uses: actions/upload-artifact@v3
+      with:
+        name: model-comparison
+        path: reports/
+
+    - name: Tag best model
+      run: |
+        aws s3 cp \
+          s3://fusion-analyzer-ml/models/${{ needs.data-preparation.outputs.dataset-id }}/${{ steps.select.outputs.best-model }}/ \
+          s3://fusion-analyzer-ml/models/latest/ \
+          --recursive
+
+  model-deployment:
+    name: Deploy Best Model
+    runs-on: ubuntu-latest
+    needs: [model-comparison]
+    if: github.event_name == 'schedule' || github.event.inputs.deploy == 'true'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Deploy model to SageMaker
+      run: |
+        aws sagemaker create-model \
+          --model-name fusion-analyzer-${{ github.run_number }} \
+          --primary-container Image=${{ secrets.ECR_REPOSITORY }}:model-serving,ModelDataUrl=s3://fusion-analyzer-ml/models/latest/model.tar.gz \
+          --execution-role-arn ${{ secrets.SAGEMAKER_ROLE_ARN }}
+
+    - name: Create SageMaker endpoint configuration
+      run: |
+        aws sagemaker create-endpoint-config \
+          --endpoint-config-name fusion-analyzer-config-${{ github.run_number }} \
+          --production-variants VariantName=primary,ModelName=fusion-analyzer-${{ github.run_number }},InitialInstanceCount=1,InstanceType=ml.t2.medium
+
+    - name: Update SageMaker endpoint
+      run: |
+        aws sagemaker update-endpoint \
+          --endpoint-name fusion-analyzer-production \
+          --endpoint-config-name fusion-analyzer-config-${{ github.run_number }}
+
+    - name: Test model endpoint
+      run: |
+        sleep 300  # Wait for endpoint update
+        poetry run python scripts/test_model_endpoint.py \
+          --endpoint-name fusion-analyzer-production \
+          --test-data-path s3://fusion-analyzer-ml/datasets/${{ needs.data-preparation.outputs.dataset-id }}/test/
+
+  cleanup:
+    name: Cleanup Resources
+    runs-on: ubuntu-latest
+    needs: [model-deployment]
+    if: always()
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Clean up old models
+      run: |
+        # Keep only the latest 5 model versions
+        aws s3api list-objects-v2 \
+          --bucket fusion-analyzer-ml \
+          --prefix models/ \
+          --query 'sort_by(Contents, &LastModified)[:-5][].Key' \
+          --output text | xargs -I {} aws s3 rm s3://fusion-analyzer-ml/{}

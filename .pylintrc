@@ -1,0 +1,47 @@
+[MASTER]
+jobs=1
+load-plugins=pylint.extensions.docparams
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-few-public-methods,
+    too-many-arguments,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    line-too-long,
+    invalid-name,
+    redefined-outer-name,
+    unused-argument,
+    import-error,
+    no-member
+
+[FORMAT]
+max-line-length=120
+max-module-lines=1000
+
+[BASIC]
+good-names=i,j,k,ex,Run,_,id,df,X,y
+
+[DESIGN]
+max-args=10
+max-locals=20
+max-returns=8
+max-branches=15
+max-statements=50
+max-parents=7
+max-attributes=20
+min-public-methods=1
+max-public-methods=30
+
+[IMPORTS]
+known-third-party=numpy,pandas,matplotlib,plotly,sklearn,scipy,fastapi,pydantic
+
+[SIMILARITIES]
+min-similarity-lines=4
+ignore-comments=yes
+ignore-docstrings=yes
+ignore-imports=no

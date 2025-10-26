@@ -1,0 +1,402 @@
+name: Nuclear Fusion Analyzer CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  PYTHON_VERSION: '3.9'
+  POETRY_VERSION: '1.4.2'
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+        exclude:
+          # Exclude some combinations to reduce job count
+          - os: windows-latest
+            python-version: '3.8'
+          - os: macos-latest
+            python-version: '3.8'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: ${{ env.POETRY_VERSION }}
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --no-root
+
+    - name: Install project
+      run: poetry install --no-interaction
+
+    - name: Run linting
+      run: |
+        poetry run flake8 src/ tests/ --max-line-length=120 --ignore=E203,W503
+        poetry run black --check src/ tests/ --line-length=120
+        poetry run isort --check-only src/ tests/
+
+    - name: Run type checking
+      run: poetry run mypy src/ --ignore-missing-imports
+
+    - name: Run security checks
+      run: |
+        poetry run bandit -r src/ -f json -o bandit-report.json
+        poetry run safety check --json --output safety-report.json
+
+    - name: Run tests with coverage
+      run: |
+        poetry run pytest tests/ \
+          --cov=src \
+          --cov-report=xml \
+          --cov-report=html \
+          --cov-report=term-missing \
+          --cov-fail-under=80 \
+          --junitxml=pytest-report.xml
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results-${{ matrix.os }}-${{ matrix.python-version }}
+        path: |
+          pytest-report.xml
+          htmlcov/
+          bandit-report.json
+          safety-report.json
+
+  build:
+    name: Build and Package
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: ${{ env.POETRY_VERSION }}
+
+    - name: Build package
+      run: poetry build
+
+    - name: Build Docker image
+      run: |
+        docker build -t nuclear-fusion-analyzer:latest .
+        docker tag nuclear-fusion-analyzer:latest nuclear-fusion-analyzer:${{ github.sha }}
+
+    - name: Save Docker image
+      run: docker save nuclear-fusion-analyzer:latest | gzip > nuclear-fusion-analyzer.tar.gz
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-artifacts
+        path: |
+          dist/
+          nuclear-fusion-analyzer.tar.gz
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+      with:
+        languages: python
+
+  performance-test:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Run performance benchmarks
+      run: |
+        poetry run python -m pytest tests/performance/ \
+          --benchmark-only \
+          --benchmark-json=benchmark-results.json
+
+    - name: Store benchmark result
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        tool: 'pytest'
+        output-file-path: benchmark-results.json
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+
+  integration-test:
+    name: Integration Testing
+    runs-on: ubuntu-latest
+    needs: test
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Run integration tests
+      env:
+        REDIS_URL: redis://localhost:6379
+      run: |
+        poetry run pytest tests/integration/ \
+          --junitxml=integration-test-results.xml
+
+    - name: Upload integration test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: integration-test-results
+        path: integration-test-results.xml
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build, security-scan, performance-test, integration-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://fusion-analyzer-staging.example.com
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: build-artifacts
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Deploy to ECS
+      run: |
+        # Load Docker image
+        docker load < nuclear-fusion-analyzer.tar.gz
+        
+        # Tag for ECR
+        docker tag nuclear-fusion-analyzer:latest ${{ secrets.ECR_REPOSITORY }}:staging-${{ github.sha }}
+        
+        # Push to ECR
+        aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin ${{ secrets.ECR_REPOSITORY }}
+        docker push ${{ secrets.ECR_REPOSITORY }}:staging-${{ github.sha }}
+        
+        # Update ECS service
+        aws ecs update-service \
+          --cluster fusion-analyzer-staging \
+          --service fusion-analyzer-api \
+          --force-new-deployment
+
+    - name: Run smoke tests
+      run: |
+        sleep 60  # Wait for deployment
+        curl -f https://fusion-analyzer-staging.example.com/health || exit 1
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://fusion-analyzer.example.com
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: build-artifacts
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Deploy to production ECS
+      run: |
+        # Load Docker image
+        docker load < nuclear-fusion-analyzer.tar.gz
+        
+        # Tag for production
+        docker tag nuclear-fusion-analyzer:latest ${{ secrets.ECR_REPOSITORY }}:production-${{ github.sha }}
+        docker tag nuclear-fusion-analyzer:latest ${{ secrets.ECR_REPOSITORY }}:latest
+        
+        # Push to ECR
+        aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin ${{ secrets.ECR_REPOSITORY }}
+        docker push ${{ secrets.ECR_REPOSITORY }}:production-${{ github.sha }}
+        docker push ${{ secrets.ECR_REPOSITORY }}:latest
+        
+        # Update production ECS service
+        aws ecs update-service \
+          --cluster fusion-analyzer-production \
+          --service fusion-analyzer-api \
+          --force-new-deployment
+
+    - name: Run production smoke tests
+      run: |
+        sleep 90  # Wait for deployment
+        curl -f https://fusion-analyzer.example.com/health || exit 1
+        curl -f https://fusion-analyzer.example.com/api/v1/status || exit 1
+
+    - name: Create GitHub release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ github.run_number }}
+        release_name: Release v${{ github.run_number }}
+        body: |
+          Automated release from commit ${{ github.sha }}
+          
+          ## Changes
+          ${{ github.event.head_commit.message }}
+          
+        draft: false
+        prerelease: false
+
+  notify:
+    name: Notification
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: always()
+
+    steps:
+    - name: Notify Slack
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#fusion-analyzer'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+    - name: Notify email on failure
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "Nuclear Fusion Analyzer CI/CD Failed"
+        body: |
+          The CI/CD pipeline for Nuclear Fusion Analyzer has failed.
+          
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.run_number }}
+          Commit: ${{ github.sha }}
+          Author: ${{ github.actor }}
+          
+          Please check the logs at: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        from: Nuclear Fusion Analyzer CI/CD
+        to: admin@fusion-analyzer.example.com
