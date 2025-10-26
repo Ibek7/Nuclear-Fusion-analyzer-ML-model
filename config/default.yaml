@@ -1,0 +1,241 @@
+# Default configuration for Nuclear Fusion Analyzer
+# This file contains default parameters for all components
+
+# Data Generation Configuration
+data:
+  # Default dataset parameters
+  default_samples: 10000
+  test_size: 0.2
+  validation_size: 0.1
+  random_state: 42
+  
+  # Anomaly injection parameters
+  anomaly_rate: 0.05
+  anomaly_strength: 2.0
+  
+  # Tokamak parameters (realistic ranges)
+  tokamak:
+    major_radius: [6.0, 8.0]  # meters
+    minor_radius: [1.8, 2.5]  # meters
+    aspect_ratio: [2.5, 4.0]
+    elongation: [1.5, 2.0]
+    triangularity: [0.3, 0.7]
+  
+  # Plasma parameter ranges
+  plasma:
+    magnetic_field: [3.0, 7.0]  # Tesla
+    plasma_current: [10.0, 20.0]  # MA
+    electron_density: [0.5e20, 2.0e20]  # m^-3
+    ion_temperature: [10.0, 30.0]  # keV
+    electron_temperature: [8.0, 25.0]  # keV
+    
+  # Heating system ranges
+  heating:
+    neutral_beam_power: [20.0, 80.0]  # MW
+    rf_heating_power: [10.0, 50.0]  # MW
+    ohmic_heating_power: [5.0, 20.0]  # MW
+    heating_efficiency: [0.6, 0.9]
+    
+  # Fuel system ranges  
+  fuel:
+    fuel_density: [2.0e19, 8.0e19]  # m^-3
+    deuterium_fraction: [0.4, 0.6]
+    tritium_fraction: [0.4, 0.6]
+    impurity_concentration: [0.01, 0.05]
+
+# Model Training Configuration
+models:
+  # Random Forest parameters
+  random_forest:
+    n_estimators: 100
+    max_depth: 15
+    min_samples_split: 5
+    min_samples_leaf: 2
+    random_state: 42
+    n_jobs: -1
+    
+  # Gradient Boosting parameters
+  gradient_boosting:
+    n_estimators: 100
+    learning_rate: 0.1
+    max_depth: 6
+    min_samples_split: 5
+    min_samples_leaf: 2
+    random_state: 42
+    
+  # Support Vector Regression parameters
+  support_vector:
+    kernel: 'rbf'
+    gamma: 'scale'
+    C: 1.0
+    epsilon: 0.1
+    
+  # Deep Learning parameters
+  deep_learning:
+    hidden_layers: [128, 64, 32]
+    dropout_rate: 0.3
+    learning_rate: 0.001
+    batch_size: 32
+    epochs: 100
+    validation_split: 0.2
+    early_stopping_patience: 10
+    
+  # LSTM parameters (for time series)
+  lstm:
+    lstm_units: [50, 50]
+    dense_units: [32, 16]
+    dropout_rate: 0.2
+    recurrent_dropout: 0.2
+    sequence_length: 50
+    
+  # Hyperparameter optimization
+  optimization:
+    cv_folds: 5
+    n_iter: 50
+    scoring: 'r2'
+    n_jobs: -1
+
+# Anomaly Detection Configuration
+anomaly_detection:
+  # Isolation Forest parameters
+  isolation_forest:
+    contamination: 0.1
+    n_estimators: 100
+    max_samples: 'auto'
+    random_state: 42
+    
+  # One-Class SVM parameters
+  one_class_svm:
+    kernel: 'rbf'
+    gamma: 'scale'
+    nu: 0.1
+    
+  # Local Outlier Factor parameters
+  local_outlier_factor:
+    n_neighbors: 20
+    contamination: 0.1
+    
+  # Autoencoder parameters
+  autoencoder:
+    encoding_dim: 32
+    hidden_layers: [64, 32]
+    epochs: 50
+    batch_size: 32
+    validation_split: 0.2
+    
+  # Physics-based thresholds
+  physics_thresholds:
+    magnetic_field_min: 0.1
+    magnetic_field_max: 15.0
+    plasma_current_min: 0.1
+    plasma_current_max: 50.0
+    density_min: 1.0e18
+    density_max: 5.0e21
+    temperature_min: 0.1
+    temperature_max: 100.0
+    q_factor_min: 0.01
+    q_factor_max: 50.0
+    
+  # Disruption detection thresholds
+  disruption_thresholds:
+    magnetic_field_drop: 0.3  # 30% drop
+    current_drop: 0.4  # 40% drop
+    density_drop: 0.5  # 50% drop
+    q_factor_collapse: 0.8  # Q < 0.8
+
+# Visualization Configuration
+visualization:
+  # Plot styling
+  style: 'seaborn-v0_8'
+  color_palette: 'husl'
+  figure_size: [12, 8]
+  dpi: 100
+  
+  # Plotly settings
+  plotly_theme: 'plotly_white'
+  plot_height: 500
+  plot_width: 800
+  
+  # Color schemes for different plot types
+  colors:
+    primary: '#1f77b4'
+    secondary: '#ff7f0e'
+    success: '#2ca02c'
+    warning: '#d62728'
+    info: '#9467bd'
+    anomaly: '#ff0000'
+    normal: '#00ff00'
+
+# Feature Engineering Configuration
+feature_engineering:
+  # Feature selection parameters
+  selection:
+    method: 'f_regression'
+    k_best: 20
+    
+  # Scaling parameters
+  scaling:
+    method: 'StandardScaler'
+    with_mean: true
+    with_std: true
+    
+  # Polynomial features
+  polynomial:
+    degree: 2
+    include_bias: false
+    interaction_only: false
+
+# Evaluation Configuration
+evaluation:
+  # Cross-validation parameters
+  cross_validation:
+    cv_folds: 5
+    shuffle: true
+    random_state: 42
+    
+  # Metrics to compute
+  metrics:
+    - 'r2_score'
+    - 'mean_squared_error'
+    - 'mean_absolute_error'
+    - 'mean_absolute_percentage_error'
+    
+  # Performance thresholds
+  thresholds:
+    min_r2: 0.5
+    max_rmse: 1.0
+    max_mae: 0.5
+    
+  # Physics validation
+  physics_validation:
+    check_energy_balance: true
+    check_pressure_balance: true
+    check_stability_limits: true
+
+# Logging Configuration
+logging:
+  level: 'INFO'
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  file_logging: true
+  log_file: 'logs/fusion_analyzer.log'
+  max_file_size: '10MB'
+  backup_count: 5
+
+# Output Configuration
+output:
+  # Default output directories
+  model_save_dir: 'saved_models'
+  results_dir: 'results'
+  plots_dir: 'plots'
+  logs_dir: 'logs'
+  
+  # File formats
+  model_format: 'joblib'
+  data_format: 'parquet'
+  plot_formats: ['png', 'pdf']
+  
+  # Experiment tracking
+  experiment_tracking:
+    enabled: true
+    backend: 'mlflow'
+    experiment_name: 'fusion_prediction'

@@ -1,0 +1,56 @@
+# Development configuration - inherits from default.yaml
+# Override specific settings for development environment
+
+defaults:
+  - default
+
+# Smaller datasets for faster development
+data:
+  default_samples: 1000
+  test_size: 0.3
+  validation_size: 0.15
+
+# Faster model training for development
+models:
+  random_forest:
+    n_estimators: 50
+    max_depth: 10
+    
+  gradient_boosting:
+    n_estimators: 50
+    learning_rate: 0.15
+    
+  deep_learning:
+    hidden_layers: [64, 32]
+    epochs: 20
+    batch_size: 64
+    early_stopping_patience: 5
+    
+  lstm:
+    lstm_units: [32, 32]
+    dense_units: [16, 8]
+    sequence_length: 20
+    
+  optimization:
+    cv_folds: 3
+    n_iter: 20
+
+# Faster anomaly detection for development
+anomaly_detection:
+  isolation_forest:
+    n_estimators: 50
+    
+  autoencoder:
+    epochs: 20
+    batch_size: 64
+
+# More verbose logging for development
+logging:
+  level: 'DEBUG'
+  file_logging: true
+
+# Development-specific output settings
+output:
+  model_save_dir: 'dev_models'
+  results_dir: 'dev_results'
+  plots_dir: 'dev_plots'

@@ -1,0 +1,80 @@
+# Production configuration - optimized for performance and accuracy
+# Override specific settings for production environment
+
+defaults:
+  - default
+
+# Larger datasets for better model performance
+data:
+  default_samples: 50000
+  test_size: 0.15
+  validation_size: 0.1
+
+# Optimized model parameters for production
+models:
+  random_forest:
+    n_estimators: 200
+    max_depth: 20
+    min_samples_split: 3
+    min_samples_leaf: 1
+    
+  gradient_boosting:
+    n_estimators: 200
+    learning_rate: 0.05
+    max_depth: 8
+    
+  deep_learning:
+    hidden_layers: [256, 128, 64, 32]
+    epochs: 200
+    batch_size: 16
+    early_stopping_patience: 20
+    
+  lstm:
+    lstm_units: [100, 100, 50]
+    dense_units: [64, 32, 16]
+    sequence_length: 100
+    
+  optimization:
+    cv_folds: 10
+    n_iter: 100
+
+# More sensitive anomaly detection for production
+anomaly_detection:
+  isolation_forest:
+    contamination: 0.05
+    n_estimators: 200
+    
+  autoencoder:
+    encoding_dim: 64
+    hidden_layers: [128, 64]
+    epochs: 100
+    
+  physics_thresholds:
+    magnetic_field_min: 0.5
+    magnetic_field_max: 12.0
+    temperature_min: 0.5
+    temperature_max: 80.0
+
+# Production logging - less verbose
+logging:
+  level: 'INFO'
+  file_logging: true
+
+# Stricter evaluation criteria for production
+evaluation:
+  thresholds:
+    min_r2: 0.8
+    max_rmse: 0.5
+    max_mae: 0.3
+
+# Production output settings
+output:
+  model_save_dir: 'production_models'
+  results_dir: 'production_results'
+  plots_dir: 'production_plots'
+  
+  # Enable experiment tracking in production
+  experiment_tracking:
+    enabled: true
+    backend: 'mlflow'
+    experiment_name: 'fusion_production'
